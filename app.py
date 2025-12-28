@@ -56,9 +56,10 @@ if st.button("Get Result"):
         try:
             response = requests.post(webhook_url, json=payload)
             if response.status_code == 204:
-                st.info("✅ Sent to Discord successfully!")
+                st.info("thanks for using,may your relation stay HAPPY FOR EVER")
             else:
                 st.error(f"❌ Failed to send. Discord said: {response.status_code}")
                 st.write(response.text)
         except Exception as e:
             st.error(f"❌ Python Error: {e}")
+
