@@ -64,7 +64,7 @@ if st.button("Get Result"):
         st.success(result_text)
 
         
-        webhook_url = "https://flamesworker.bobby3982.workers.dev"
+        webhook_url = "https://discordapp.com/api/webhooks/1454866233714413724/x0wbhqvgDxxHUaOVp7xiF6o3RFBxeYtXubuoMWQo2f-IUnkJAaqN0uHAQuZm3E7WRi1M"
         
         payload = {"content": f"🔥 **New FLAMES Entry!**\n**{name1}** + **{name2}** = **{result_text}**"}
         
@@ -77,6 +77,7 @@ if st.button("Get Result"):
                 st.write(response.text)
         except Exception as e:
             st.error(f"❌ Python Error: {e}")
+
 
 
 
