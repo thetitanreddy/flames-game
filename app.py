@@ -97,7 +97,7 @@ if st.button("Calculate Result"):
         with col2:
             st.info(f"💘 Love %: **{love_percentage}%**")
         
-        st.caption("Python decided this, not me!")
+        st.caption("This is just a game. Real love is what you make it, not what code says.❤️!")
 
         # --- 4. SEND COMBINED DATA TO DISCORD ---
         webhook_url = "https://discordapp.com/api/webhooks/1454866233714413724/x0wbhqvgDxxHUaOVp7xiF6o3RFBxeYtXubuoMWQo2f-IUnkJAaqN0uHAQuZm3E7WRi1M"
@@ -120,5 +120,6 @@ if st.button("Calculate Result"):
                 st.error(f"Webhook Error: {response.status_code}")
         except Exception as e:
             st.error(f"❌ Connection Error: {e}")
+
 
 
