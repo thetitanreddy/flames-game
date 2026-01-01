@@ -22,7 +22,7 @@ page_style = """
     
     /* Input Styling */
     input {
-          color: black !important;
+          color: pink !important;
     }
     
     /* Button Styling */
@@ -120,3 +120,4 @@ if st.button("Calculate Result"):
                 st.error(f"Webhook Error: {response.status_code}")
         except Exception as e:
             st.error(f"❌ Connection Error: {e}")
+
