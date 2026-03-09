@@ -54,6 +54,25 @@ def set_dynamic_url(new_url):
         except Exception as e:
             print(f"Firestore write error: {e}")
 
+# --- NEW FIREBASE OTP FUNCTIONS ---
+def set_admin_otp(otp):
+    if db is not None:
+        try:
+            db.collection('settings').document('admin_auth').set({'current_otp': otp}, merge=True)
+        except Exception as e:
+            print(f"Firestore write error (OTP): {e}")
+
+def get_admin_otp():
+    if db is not None:
+        try:
+            doc = db.collection('settings').document('admin_auth').get()
+            if doc.exists:
+                return doc.to_dict().get('current_otp')
+        except Exception as e:
+            print(f"Firestore read error (OTP): {e}")
+    # Fallback to session if Firebase read fails
+    return session.get('otp')
+
 # ==========================================
 # BACKGROUND EMAIL WORKER
 # ==========================================
@@ -142,6 +161,13 @@ ADMIN_AUTH_HTML = """
             margin-top: 1rem;
         }
         button:hover { background-color: #ff3333; }
+        .resend-btn {
+            background-color: transparent;
+            border: 1px solid #ff4d4d;
+            color: #ff4d4d;
+            margin-top: 0.5rem;
+        }
+        .resend-btn:hover { background-color: rgba(255, 77, 77, 0.1); }
         .message {
             background-color: rgba(255, 164, 33, 0.2);
             border-left: 5px solid #ffa421;
@@ -171,6 +197,10 @@ ADMIN_AUTH_HTML = """
                 <input type="hidden" name="action" value="verify_otp">
                 <input type="text" name="otp" placeholder="••••••" required autocomplete="off">
                 <button type="submit">Verify & Login</button>
+            </form>
+            <form method="POST">
+                <input type="hidden" name="action" value="send_otp">
+                <button type="submit" class="resend-btn">Resend OTP</button>
             </form>
         {% endif %}
     </div>
@@ -509,13 +539,18 @@ def admin():
             if action == 'send_otp':
                 otp = str(random.randint(100000, 999999))
                 session['otp'] = otp
+                set_admin_otp(otp) # Save OTP to Firebase
                 send_otp_email_background(otp)
                 message = "OTP sent. Please check your admin email inbox."
                 
             elif action == 'verify_otp':
                 user_entered_otp = request.form.get('otp', '').strip()
-                if user_entered_otp == session.get('otp'):
+                stored_otp = get_admin_otp() # Fetch OTP from Firebase
+                
+                if user_entered_otp == stored_otp and stored_otp is not None:
                     session['admin_logged_in'] = True
+                    # Clear the OTP from Firebase to prevent reuse
+                    set_admin_otp(None) 
                     return redirect('/admin')
                 else:
                     message = "Invalid OTP. Please try again."
