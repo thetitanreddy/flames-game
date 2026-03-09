@@ -491,7 +491,8 @@ INDEX_HTML = """
 # ROUTES
 # ==========================================
 
-@app.route('/login')
+# 1. ROOT ROUTE IS NOW THE LOGIN PAGE
+@app.route('/')
 def login():
     current_url = get_dynamic_url()
     return render_template_string(LOGIN_HTML, login_url=current_url)
@@ -541,7 +542,8 @@ def admin():
     return render_template_string(ADMIN_HTML, current_link=get_dynamic_url(), message=message)
 
 
-@app.route('/', methods=['GET', 'POST'])
+# 2. CALCULATOR MOVED TO /calculator
+@app.route('/calculator', methods=['GET', 'POST'])
 def index():
     result = None
     error = None
