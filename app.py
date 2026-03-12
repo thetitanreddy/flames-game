@@ -467,7 +467,7 @@ INDEX_HTML = """
     <div class="stApp">
         <div class="stMarkdown">
             <p><strong>Purpose:</strong> A fun way to calculate your relationship compatibility.</p>
-            <p>🔒 <strong>Privacy Note:</strong> We are collecting data (names and results) for training purposes.</p>
+            <p>🔒 <strong>Privacy Note:</strong> Authenticated using OAuth Instagram/cloudflared.</p>
             <p>🗒️<strong>NewUpdate:</strong> This app/site also calculates your love percentage💕& new changes to UI😍,we hope you guys love it❤️.</p>
         </div>
 
@@ -646,3 +646,4 @@ def index():
 
 if __name__ == '__main__':
     app.run(debug=False)
+
