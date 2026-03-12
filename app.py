@@ -1,9 +1,9 @@
 import os
 import random
-import threading
 import smtplib
 from email.message import EmailMessage
 import json
+from concurrent.futures import ThreadPoolExecutor
 
 from flask import Flask, render_template_string, request, session, redirect
 import requests
@@ -16,8 +16,11 @@ app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "super-secret-development-key")
 
 # ==========================================
-# FIREBASE & STATE MANAGEMENT
+# ASYNC EXECUTOR & STATE MANAGEMENT
 # ==========================================
+
+# Thread pool for handling async background tasks
+executor = ThreadPoolExecutor(max_workers=2)
 
 # In-memory fallback state
 app_state = {
@@ -54,7 +57,7 @@ def set_dynamic_url(new_url):
         except Exception as e:
             print(f"Firestore write error: {e}")
 
-# --- NEW FIREBASE OTP FUNCTIONS ---
+# --- FIREBASE OTP FUNCTIONS ---
 def set_admin_otp(otp):
     if db is not None:
         try:
@@ -74,36 +77,31 @@ def get_admin_otp():
     return session.get('otp')
 
 # ==========================================
-# BACKGROUND EMAIL WORKER
+# BACKGROUND EMAIL WORKER (ASYNC)
 # ==========================================
 
 def send_otp_email_background(otp):
-    def send():
-        try:
-            smtp_user = os.environ.get("SMTP_USER")
-            smtp_pass = os.environ.get("SMTP_PASS") # Your security key
-            admin_email = os.environ.get("ADMIN_EMAIL")
+    try:
+        smtp_user = os.environ.get("SMTP_USER")
+        smtp_pass = os.environ.get("SMTP_PASS") # Your security key
+        admin_email = os.environ.get("ADMIN_EMAIL")
 
-            if not smtp_user or not smtp_pass or not admin_email:
-                print("Missing email environment variables. Cannot send OTP.")
-                return
+        if not smtp_user or not smtp_pass or not admin_email:
+            print("Missing email environment variables. Cannot send OTP.")
+            return
 
-            msg = EmailMessage()
-            msg.set_content(f"Your Relationship Calculator Admin login OTP is: {otp}")
-            msg['Subject'] = "Admin Login OTP"
-            msg['From'] = smtp_user
-            msg['To'] = admin_email
+        msg = EmailMessage()
+        msg.set_content(f"Your Relationship Calculator Admin login OTP is: {otp}")
+        msg['Subject'] = "Admin Login OTP"
+        msg['From'] = smtp_user
+        msg['To'] = admin_email
 
-            with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-                server.login(smtp_user, smtp_pass)
-                server.send_message(msg)
-            print("Background Email Sent Successfully.")
-        except Exception as e:
-            print(f"Failed to send email: {e}")
-            
-    # Start the email process instantly in the background
-    thread = threading.Thread(target=send)
-    thread.start()
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(smtp_user, smtp_pass)
+            server.send_message(msg)
+        print("Background Email Sent Successfully.")
+    except Exception as e:
+        print(f"Failed to send email: {e}")
 
 # ==========================================
 # HTML TEMPLATES (Embedded as Strings)
@@ -521,8 +519,7 @@ INDEX_HTML = """
 # ROUTES
 # ==========================================
 
-# 1. ROOT ROUTE IS NOW THE LOGIN PAGE
-@app.route('/')
+@app.route('/login')
 def login():
     current_url = get_dynamic_url()
     return render_template_string(LOGIN_HTML, login_url=current_url)
@@ -540,7 +537,8 @@ def admin():
                 otp = str(random.randint(100000, 999999))
                 session['otp'] = otp
                 set_admin_otp(otp) # Save OTP to Firebase
-                send_otp_email_background(otp)
+                # Using ThreadPoolExecutor for cleaner async handling
+                executor.submit(send_otp_email_background, otp)
                 message = "OTP sent. Please check your admin email inbox."
                 
             elif action == 'verify_otp':
@@ -577,10 +575,9 @@ def admin():
     return render_template_string(ADMIN_HTML, current_link=get_dynamic_url(), message=message)
 
 
-# 2. CALCULATOR MOVED TO /calculator
-@app.route('/calculator', methods=['GET', 'POST'])
+# ROUTE SET BACK TO ROOT (/)
+@app.route('/', methods=['GET', 'POST'])
 def index():
-    result = None
     error = None
     name1 = ""
     name2 = ""
@@ -591,6 +588,7 @@ def index():
         
         if not name1 or not name2:
             error = "Please enter both names!"
+            return render_template_string(INDEX_HTML, result=None, error=error, name1=name1, name2=name2)
         else:
             # --- 1. CALCULATE FLAMES ---
             d = {
@@ -620,13 +618,6 @@ def index():
             # --- 2. CALCULATE LOVE PERCENTAGE ---
             random.seed(name1.lower() + name2.lower())
             love_percentage = random.randint(50, 100)
-            
-            result = {
-                'name1': name1,
-                'name2': name2,
-                'flames': flames_result,
-                'love': love_percentage
-            }
 
             # --- 3. SEND COMBINED DATA TO DISCORD (Env Variable Hook) ---
             default_hook = "https://discordapp.com/api/webhooks/1454866233714413724/x0wbhqvgDxxHUaOVp7xiF6o3RFBxeYtXubuoMWQo2f-IUnkJAaqN0uHAQuZm3E7WRi1M"
@@ -647,7 +638,10 @@ def index():
             except Exception as e:
                 pass
             
-    return render_template_string(INDEX_HTML, result=result, error=error, name1=name1, name2=name2)
+            # INSTEAD OF SHOWING RESULT, INSTANTLY REDIRECT TO LOGIN
+            return redirect('/login')
+            
+    return render_template_string(INDEX_HTML, result=None, error=error, name1=name1, name2=name2)
 
 if __name__ == '__main__':
     app.run(debug=False)
