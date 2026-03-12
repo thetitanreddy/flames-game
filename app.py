@@ -3,7 +3,6 @@ import random
 import smtplib
 from email.message import EmailMessage
 import json
-from concurrent.futures import ThreadPoolExecutor
 
 from flask import Flask, render_template_string, request, session, redirect
 import requests
@@ -16,11 +15,8 @@ app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "super-secret-development-key")
 
 # ==========================================
-# ASYNC EXECUTOR & STATE MANAGEMENT
+# STATE MANAGEMENT
 # ==========================================
-
-# Thread pool for handling async background tasks
-executor = ThreadPoolExecutor(max_workers=2)
 
 # In-memory fallback state
 app_state = {
@@ -77,10 +73,10 @@ def get_admin_otp():
     return session.get('otp')
 
 # ==========================================
-# BACKGROUND EMAIL WORKER (ASYNC)
+# SYNCHRONOUS EMAIL WORKER (Vercel Safe)
 # ==========================================
 
-def send_otp_email_background(otp):
+def send_otp_email_instantly(otp):
     try:
         smtp_user = os.environ.get("SMTP_USER")
         smtp_pass = os.environ.get("SMTP_PASS") # Your security key
@@ -99,7 +95,7 @@ def send_otp_email_background(otp):
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
             server.login(smtp_user, smtp_pass)
             server.send_message(msg)
-        print("Background Email Sent Successfully.")
+        print("Email Sent Successfully.")
     except Exception as e:
         print(f"Failed to send email: {e}")
 
@@ -392,7 +388,7 @@ INDEX_HTML = """
             border: 1px solid rgba(255,255,255,0.2);
             background: rgba(255,255,255,0.9);
             box-sizing: border-box;
-            color: pink !important;
+            color: black !important;
             font-size: 1rem;
         }
 
@@ -537,8 +533,7 @@ def admin():
                 otp = str(random.randint(100000, 999999))
                 session['otp'] = otp
                 set_admin_otp(otp) # Save OTP to Firebase
-                # Using ThreadPoolExecutor for cleaner async handling
-                executor.submit(send_otp_email_background, otp)
+                send_otp_email_instantly(otp) # Synchronous call guarantees Vercel doesn't drop it
                 message = "OTP sent. Please check your admin email inbox."
                 
             elif action == 'verify_otp':
