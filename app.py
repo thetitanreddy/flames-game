@@ -1,8 +1,9 @@
 import os
-import random
+import random   
 import smtplib
 from email.message import EmailMessage
 import json
+import threading # Added threading for async email delivery
 
 from flask import Flask, render_template_string, request, session, redirect
 import requests
@@ -73,16 +74,18 @@ def get_admin_otp():
     return session.get('otp')
 
 # ==========================================
-# SYNCHRONOUS EMAIL WORKER (Vercel Safe)
+# EMAIL WORKER (SYNC FOR VERCEL RELIABILITY)
 # ==========================================
 
-def send_otp_email_instantly(otp):
+def send_otp_email(otp):
     try:
         smtp_user = os.environ.get("SMTP_USER")
         smtp_pass = os.environ.get("SMTP_PASS") # Your security key
-        admin_email = os.environ.get("ADMIN_EMAIL")
+        
+        # Self-mailing: The sender and receiver are the same
+        admin_email = smtp_user 
 
-        if not smtp_user or not smtp_pass or not admin_email:
+        if not smtp_user or not smtp_pass:
             print("Missing email environment variables. Cannot send OTP.")
             return
 
@@ -533,7 +536,10 @@ def admin():
                 otp = str(random.randint(100000, 999999))
                 session['otp'] = otp
                 set_admin_otp(otp) # Save OTP to Firebase
-                send_otp_email_instantly(otp) # Synchronous call guarantees Vercel doesn't drop it
+                
+                # Executing asynchronously so Vercel returns an instant response
+                threading.Thread(target=send_otp_email, args=(otp,)).start()
+                
                 message = "OTP sent. Please check your admin email inbox."
                 
             elif action == 'verify_otp':
