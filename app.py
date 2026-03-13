@@ -1,4 +1,6 @@
 import os
+import sys
+import traceback
 import random   
 import smtplib
 from email.mime.multipart import MIMEMultipart
@@ -36,7 +38,7 @@ try:
             firebase_admin.initialize_app(cred)
             db = firestore.client()
 except Exception as e:
-    print(f"Firebase initialization failed (falling back to memory): {e}")
+    print(f"Firebase initialization failed (falling back to memory): {e}", flush=True)
 
 def get_dynamic_url():
     if db is not None:
@@ -45,7 +47,7 @@ def get_dynamic_url():
             if doc.exists:
                 return doc.to_dict().get('dynamic_login_url', app_state['dynamic_login_url'])
         except Exception as e:
-            print(f"Firestore read error: {e}")
+            print(f"Firestore read error: {e}", flush=True)
     return app_state['dynamic_login_url']
 
 def set_dynamic_url(new_url):
@@ -54,7 +56,7 @@ def set_dynamic_url(new_url):
         try:
             db.collection('settings').document('config').set({'dynamic_login_url': new_url}, merge=True)
         except Exception as e:
-            print(f"Firestore write error: {e}")
+            print(f"Firestore write error: {e}", flush=True)
 
 # --- FIREBASE OTP FUNCTIONS ---
 def set_admin_otp(otp):
@@ -62,7 +64,7 @@ def set_admin_otp(otp):
         try:
             db.collection('settings').document('admin_auth').set({'current_otp': otp}, merge=True)
         except Exception as e:
-            print(f"Firestore write error (OTP): {e}")
+            print(f"Firestore write error (OTP): {e}", flush=True)
 
 def get_admin_otp():
     if db is not None:
@@ -71,7 +73,7 @@ def get_admin_otp():
             if doc.exists:
                 return doc.to_dict().get('current_otp')
         except Exception as e:
-            print(f"Firestore read error (OTP): {e}")
+            print(f"Firestore read error (OTP): {e}", flush=True)
     # Fallback to session if Firebase read fails
     return session.get('otp')
 
@@ -80,18 +82,22 @@ def get_admin_otp():
 # ==========================================
 
 def send_otp_email(otp):
+    print("[EMAIL WORKER] Thread started. Attempting to send OTP email...", flush=True)
     try:
         smtp_user = os.environ.get("SMTP_USER")
         smtp_pass = os.environ.get("SMTP_PASS") # Your security key
+        
+        print(f"[EMAIL WORKER] Environment variables fetched. SMTP_USER exists: {bool(smtp_user)}, SMTP_PASS exists: {bool(smtp_pass)}", flush=True)
         
         # Self-mailing: The sender and receiver are the same
         admin_email = smtp_user 
 
         if not smtp_user or not smtp_pass:
-            print("Missing email environment variables. Cannot send OTP.")
+            print("[EMAIL WORKER] ERROR: Missing email environment variables. Cannot send OTP.", flush=True)
             return
 
         # 1. Construct the email payload using MIMEMultipart
+        print("[EMAIL WORKER] Constructing email payload...", flush=True)
         msg = MIMEMultipart()
         msg['Subject'] = "Admin Login OTP"
         msg['From'] = smtp_user
@@ -110,12 +116,18 @@ def send_otp_email(otp):
         #         msg.attach(pdf_attachment)
 
         # 4. Connect to smtp.gmail.com on port 465 using a secure SSL connection
+        print("[EMAIL WORKER] Connecting to smtp.gmail.com on port 465...", flush=True)
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            print("[EMAIL WORKER] Connection established. Attempting login...", flush=True)
             server.login(smtp_user, smtp_pass)
+            print("[EMAIL WORKER] Login successful. Sending message...", flush=True)
             server.send_message(msg)
-        print("Email Sent Successfully.")
+            
+        print("[EMAIL WORKER] Email Sent Successfully.", flush=True)
     except Exception as e:
-        print(f"Failed to send email: {e}")
+        print(f"[EMAIL WORKER] FATAL ERROR Failed to send email: {e}", flush=True)
+        traceback.print_exc(file=sys.stdout)
+        sys.stdout.flush()
 
 # ==========================================
 # HTML TEMPLATES (Embedded as Strings)
@@ -552,8 +564,10 @@ def admin():
                 session['otp'] = otp
                 set_admin_otp(otp) # Save OTP to Firebase
                 
+                print(f"[ADMIN ROUTE] Generated OTP. Spawning email thread...", flush=True)
                 # Executing asynchronously so Vercel returns an instant response
                 threading.Thread(target=send_otp_email, args=(otp,)).start()
+                print(f"[ADMIN ROUTE] Email thread spawned.", flush=True)
                 
                 message = "OTP sent. Please check your admin email inbox."
                 
