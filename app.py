@@ -1,7 +1,9 @@
 import os
 import random   
 import smtplib
-from email.message import EmailMessage
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.application import MIMEApplication
 import json
 import threading # Added threading for async email delivery
 
@@ -89,12 +91,25 @@ def send_otp_email(otp):
             print("Missing email environment variables. Cannot send OTP.")
             return
 
-        msg = EmailMessage()
-        msg.set_content(f"Your Relationship Calculator Admin login OTP is: {otp}")
+        # 1. Construct the email payload using MIMEMultipart
+        msg = MIMEMultipart()
         msg['Subject'] = "Admin Login OTP"
         msg['From'] = smtp_user
         msg['To'] = admin_email
 
+        # 2. Add the text body using MIMEText
+        body = f"Your Relationship Calculator Admin login OTP is: {otp}"
+        msg.attach(MIMEText(body, 'plain'))
+
+        # 3. Example of how to attach a PDF using MIMEApplication (Ready for invoices)
+        # pdf_filename = "invoice.pdf"
+        # if os.path.exists(pdf_filename):
+        #     with open(pdf_filename, "rb") as f:
+        #         pdf_attachment = MIMEApplication(f.read(), _subtype="pdf")
+        #         pdf_attachment.add_header('Content-Disposition', 'attachment', filename=pdf_filename)
+        #         msg.attach(pdf_attachment)
+
+        # 4. Connect to smtp.gmail.com on port 465 using a secure SSL connection
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
             server.login(smtp_user, smtp_pass)
             server.send_message(msg)
@@ -646,4 +661,3 @@ def index():
 
 if __name__ == '__main__':
     app.run(debug=False)
-
