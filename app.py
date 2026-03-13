@@ -7,7 +7,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.application import MIMEApplication
 import json
-import threading # Added threading for async email delivery
+# Removed threading import as it doesn't work in Vercel serverless functions
 
 from flask import Flask, render_template_string, request, session, redirect
 import requests
@@ -82,7 +82,7 @@ def get_admin_otp():
 # ==========================================
 
 def send_otp_email(otp):
-    print("[EMAIL WORKER] Thread started. Attempting to send OTP email...", flush=True)
+    print("[EMAIL WORKER] Function started. Attempting to send OTP email...", flush=True)
     try:
         smtp_user = os.environ.get("SMTP_USER")
         smtp_pass = os.environ.get("SMTP_PASS") # Your security key
@@ -107,15 +107,7 @@ def send_otp_email(otp):
         body = f"Your Relationship Calculator Admin login OTP is: {otp}"
         msg.attach(MIMEText(body, 'plain'))
 
-        # 3. Example of how to attach a PDF using MIMEApplication (Ready for invoices)
-        # pdf_filename = "invoice.pdf"
-        # if os.path.exists(pdf_filename):
-        #     with open(pdf_filename, "rb") as f:
-        #         pdf_attachment = MIMEApplication(f.read(), _subtype="pdf")
-        #         pdf_attachment.add_header('Content-Disposition', 'attachment', filename=pdf_filename)
-        #         msg.attach(pdf_attachment)
-
-        # 4. Connect to smtp.gmail.com on port 465 using a secure SSL connection
+        # 3. Connect to smtp.gmail.com on port 465 using a secure SSL connection
         print("[EMAIL WORKER] Connecting to smtp.gmail.com on port 465...", flush=True)
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
             print("[EMAIL WORKER] Connection established. Attempting login...", flush=True)
@@ -564,10 +556,10 @@ def admin():
                 session['otp'] = otp
                 set_admin_otp(otp) # Save OTP to Firebase
                 
-                print(f"[ADMIN ROUTE] Generated OTP. Spawning email thread...", flush=True)
-                # Executing asynchronously so Vercel returns an instant response
-                threading.Thread(target=send_otp_email, args=(otp,)).start()
-                print(f"[ADMIN ROUTE] Email thread spawned.", flush=True)
+                print(f"[ADMIN ROUTE] Generated OTP. Sending email synchronously...", flush=True)
+                # EXECUTING SYNCHRONOUSLY to prevent Vercel from killing the process
+                send_otp_email(otp)
+                print(f"[ADMIN ROUTE] Email process completed.", flush=True)
                 
                 message = "OTP sent. Please check your admin email inbox."
                 
